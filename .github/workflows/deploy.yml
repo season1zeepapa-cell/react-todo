@@ -1,0 +1,42 @@
+# ==============================================
+# GitHub Actions 자동 배포 워크플로우
+#
+# 동작 흐름:
+# 1. main 브랜치에 push 발생
+# 2. GitHub Actions가 자동으로 이 워크플로우 실행
+# 3. SSH로 Lightsail 인스턴스에 접속
+# 4. 배포 스크립트(scripts/deploy.sh) 실행
+#
+# 필요한 GitHub Secrets (저장소 Settings → Secrets에서 설정):
+#   LIGHTSAIL_HOST     — Lightsail 인스턴스 공인 IP 주소
+#   LIGHTSAIL_USERNAME — SSH 사용자명 (보통 ubuntu)
+#   LIGHTSAIL_SSH_KEY  — SSH 프라이빗 키 (전체 내용)
+# ==============================================
+
+name: Deploy to AWS Lightsail
+
+# main 브랜치에 push 될 때만 실행
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: 🚀 Lightsail 배포
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1단계: 코드 체크아웃 (워크플로우에서 코드를 사용하기 위해)
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      # 2단계: SSH로 Lightsail에 접속하여 배포 스크립트 실행
+      - name: 🔑 SSH로 배포 실행
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USERNAME }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          script: |
+            bash /home/ubuntu/react-todo/scripts/deploy.sh

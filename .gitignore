@@ -1,0 +1,15 @@
+# 환경변수 파일 (비밀키가 들어있으므로 Git에 올리면 안됨!)
+.env
+
+# Node.js 의존성 폴더
+node_modules/
+
+# 로그 파일
+*.log
+
+# macOS 시스템 파일
+.DS_Store
+
+# IDE 설정 파일
+.vscode/
+.idea/

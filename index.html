@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>심플 투두앱</title>
+
+    <!-- React와 Babel을 CDN으로 불러오기 -->
+    <!-- React: 화면을 만들고 관리하는 라이브러리 -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <!-- ReactDOM: React를 실제 웹 페이지에 표시해주는 도구 -->
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel: JSX 문법을 브라우저가 이해할 수 있는 JavaScript로 변환 -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Tailwind CSS: 유틸리티 클래스 기반 CSS 프레임워크 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-indigo-500 to-purple-600 min-h-screen flex items-center justify-center p-5">
+    <!-- React 앱이 표시될 위치 -->
+    <div id="root"></div>
+
+    <!-- React 컴포넌트와 로직 -->
+    <script type="text/babel">
+        // ========== 백엔드 API 설정 ==========
+        // 상대경로를 사용하면 로컬(localhost)이든 배포 서버든
+        // 어떤 환경에서든 자동으로 현재 서버의 /api로 요청합니다
+        const API_BASE_URL = '/api';
+
+        // React의 useState, useEffect 훅을 사용하기 위해 가져오기
+        const { useState, useEffect } = React;
+
+        // ========== 인증 헬퍼 함수 ==========
+        // JWT 토큰을 브라우저의 localStorage에 저장/조회/삭제하는 함수들
+        // localStorage: 브라우저를 닫아도 데이터가 유지되는 저장소
+        // 마치 "출입증"을 지갑에 넣어두는 것과 같습니다
+
+        // 저장된 토큰 가져오기
+        const getToken = () => localStorage.getItem('auth_token');
+
+        // 토큰 저장하기
+        const setToken = (token) => localStorage.setItem('auth_token', token);
+
+        // 토큰 삭제하기 (로그아웃 시 사용)
+        const removeToken = () => localStorage.removeItem('auth_token');
+
+        // 인증된 API 호출을 위한 헬퍼 함수
+        // 모든 API 요청에 "출입증(토큰)"을 자동으로 첨부합니다
+        //
+        // 동작 흐름:
+        // 1. localStorage에서 토큰 가져오기
+        // 2. Authorization 헤더에 토큰 추가
+        // 3. fetch 요청 보내기
+        // 4. 401 응답(로그인 만료) 시 자동 로그아웃
+        const authFetch = async (url, options = {}) => {
+            const token = getToken();
+            const headers = {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                ...options.headers
+            };
+
+            const response = await fetch(url, { ...options, headers });
+
+            // 401 응답 = 토큰이 만료되었거나 유효하지 않음
+            if (response.status === 401) {
+                removeToken();
+                // 페이지를 새로고침하여 로그인 화면으로 이동
+                window.location.reload();
+                throw new Error('로그인이 만료되었습니다.');
+            }
+
+            return response;
+        };
+
+        // ========== LoginForm 컴포넌트 ==========
+        // 로그인 화면: 이메일과 비밀번호를 입력하여 로그인합니다
+        //
+        // props:
+        //   onLoginSuccess: 로그인 성공 시 호출되는 함수 (사용자 정보, 토큰 전달)
+        //   onGoToRegister: "회원가입" 링크 클릭 시 호출되는 함수
+        function LoginForm({ onLoginSuccess, onGoToRegister }) {
+            // 입력 상태 관리
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState(null);
+            const [loading, setLoading] = useState(false);
+
+            // 로그인 처리 함수
+            // 동작 흐름: 이메일/비밀번호 전송 → 서버 검증 → 토큰 발급 → 투두 화면으로
+            const handleLogin = async (e) => {
+                e.preventDefault(); // 폼 기본 동작(페이지 새로고침) 방지
+                setError(null);
+                setLoading(true);
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(result.error || '로그인에 실패했습니다.');
+                    }
+
+                    // 로그인 성공! 부모 컴포넌트(App)에 알림
+                    onLoginSuccess(result.data.user, result.data.token);
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10">
+                    {/* 제목 */}
+                    <h1 className="text-indigo-500 text-center mb-2 text-4xl font-bold">
+                        ✨ 오늘 할 일
+                    </h1>
+                    <p className="text-gray-400 text-center mb-8">
+                        로그인하여 시작하세요
+                    </p>
+
+                    {/* 에러 메시지 */}
+                    {error && (
+                        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded-xl">
+                            <p className="text-sm">{error}</p>
+                        </div>
+                    )}
+
+                    {/* 로그인 폼 */}
+                    <form onSubmit={handleLogin}>
+                        {/* 이메일 입력 */}
+                        <div className="mb-4">
+                            <label className="block text-gray-700 text-sm font-semibold mb-2">
+                                이메일
+                            </label>
+                            <input
+                                type="email"
+                                className="w-full px-5 py-4 border-2 border-gray-300 rounded-xl text-base outline-none transition-all duration-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                placeholder="이메일을 입력하세요"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                required
+                            />
+                        </div>
+
+                        {/* 비밀번호 입력 */}
+                        <div className="mb-6">
+                            <label className="block text-gray-700 text-sm font-semibold mb-2">
+                                비밀번호
+                            </label>
+                            <input
+                                type="password"
+                                className="w-full px-5 py-4 border-2 border-gray-300 rounded-xl text-base outline-none transition-all duration-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                placeholder="비밀번호를 입력하세요"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                            />
+                        </div>
+
+                        {/* 로그인 버튼 */}
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full py-4 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-xl font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? '로그인 중...' : '로그인'}
+                        </button>
+                    </form>
+
+                    {/* 회원가입 링크 */}
+                    <p className="text-center mt-6 text-gray-500">
+                        계정이 없으신가요?{' '}
+                        <button
+                            onClick={onGoToRegister}
+                            className="text-indigo-500 font-semibold hover:underline cursor-pointer"
+                        >
+                            회원가입
+                        </button>
+                    </p>
+                </div>
+            );
+        }
+
+        // ========== RegisterForm 컴포넌트 ==========
+        // 회원가입 화면: 이메일, 비밀번호, 비밀번호 확인을 입력하여 가입합니다
+        //
+        // props:
+        //   onRegisterSuccess: 회원가입 성공 시 호출 (자동 로그인)
+        //   onGoToLogin: "로그인" 링크 클릭 시 호출
+        function RegisterForm({ onRegisterSuccess, onGoToLogin }) {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [confirmPassword, setConfirmPassword] = useState('');
+            const [error, setError] = useState(null);
+            const [loading, setLoading] = useState(false);
+
+            // 회원가입 처리 함수
+            // 동작 흐름: 입력값 검증 → 서버에 등록 → 토큰 발급 → 자동 로그인
+            const handleRegister = async (e) => {
+                e.preventDefault();
+                setError(null);
+
+                // 비밀번호 확인 일치 여부 검증
+                if (password !== confirmPassword) {
+                    setError('비밀번호가 일치하지 않습니다.');
+                    return;
+                }
+
+                // 비밀번호 길이 검증
+                if (password.length < 6) {
+                    setError('비밀번호는 6자 이상이어야 합니다.');
+                    return;
+                }
+
+                setLoading(true);
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(result.error || '회원가입에 실패했습니다.');
+                    }
+
+                    // 회원가입 성공 → 자동 로그인
+                    onRegisterSuccess(result.data.user, result.data.token);
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10">
+                    {/* 제목 */}
+                    <h1 className="text-indigo-500 text-center mb-2 text-4xl font-bold">
+                        ✨ 회원가입
+                    </h1>
+                    <p className="text-gray-400 text-center mb-8">
+                        새 계정을 만들어보세요
+                    </p>
+
+                    {/* 에러 메시지 */}
+                    {error && (
+                        <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded-xl">
+                            <p className="text-sm">{error}</p>
+                        </div>
+                    )}
+
+                    {/* 회원가입 폼 */}
+                    <form onSubmit={handleRegister}>
+                        {/* 이메일 입력 */}
+                        <div className="mb-4">
+                            <label className="block text-gray-700 text-sm font-semibold mb-2">
+                                이메일
+                            </label>
+                            <input
+                                type="email"
+                                className="w-full px-5 py-4 border-2 border-gray-300 rounded-xl text-base outline-none transition-all duration-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                placeholder="이메일을 입력하세요"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                required
+                            />
+                        </div>
+
+                        {/* 비밀번호 입력 */}
+                        <div className="mb-4">
+                            <label className="block text-gray-700 text-sm font-semibold mb-2">
+                                비밀번호
+                            </label>
+                            <input
+                                type="password"
+                                className="w-full px-5 py-4 border-2 border-gray-300 rounded-xl text-base outline-none transition-all duration-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                placeholder="6자 이상 입력하세요"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                                minLength={6}
+                            />
+                        </div>
+
+                        {/* 비밀번호 확인 */}
+                        <div className="mb-6">
+                            <label className="block text-gray-700 text-sm font-semibold mb-2">
+                                비밀번호 확인
+                            </label>
+                            <input
+                                type="password"
+                                className="w-full px-5 py-4 border-2 border-gray-300 rounded-xl text-base outline-none transition-all duration-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                                placeholder="비밀번호를 다시 입력하세요"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                required
+                            />
+                        </div>
+
+                        {/* 회원가입 버튼 */}
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full py-4 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-xl font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? '가입 중...' : '회원가입'}
+                        </button>
+                    </form>
+
+                    {/* 로그인 링크 */}
+                    <p className="text-center mt-6 text-gray-500">
+                        이미 계정이 있으신가요?{' '}
+                        <button
+                            onClick={onGoToLogin}
+                            className="text-indigo-500 font-semibold hover:underline cursor-pointer"
+                        >
+                            로그인
+                        </button>
+                    </p>
+                </div>
+            );
+        }
+
+        // ========== TodoApp 컴포넌트 ==========
+        // 투두앱 메인 화면: 로그인한 사용자의 할 일 목록을 관리합니다
+        //
+        // props:
+        //   user: 현재 로그인한 사용자 정보 ({ id, email })
+        //   onLogout: 로그아웃 버튼 클릭 시 호출되는 함수
+        function TodoApp({ user, onLogout }) {
+            // ========== 상태(State) 정의 ==========
+            const [todos, setTodos] = useState([]);
+            const [inputValue, setInputValue] = useState('');
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+
+            // 컴포넌트가 처음 나타날 때 데이터 로드
+            useEffect(() => {
+                fetchTodos();
+            }, []);
+
+            // ========== 함수 정의 ==========
+
+            // 로컬 스토리지 백업 (사용자별로 분리)
+            const saveTodosToLocal = (todos) => {
+                localStorage.setItem(`todos_backup_${user.id}`, JSON.stringify(todos));
+            };
+
+            const loadTodosFromLocal = () => {
+                const backup = localStorage.getItem(`todos_backup_${user.id}`);
+                return backup ? JSON.parse(backup) : [];
+            };
+
+            // 할 일 목록 가져오기 (인증된 API 호출)
+            const fetchTodos = async (retries = 3) => {
+                setLoading(true);
+                setError(null);
+
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        // authFetch: 토큰이 자동으로 첨부됩니다
+                        const response = await authFetch(`${API_BASE_URL}/todos`);
+
+                        if (!response.ok) {
+                            throw new Error(`서버 오류: ${response.status}`);
+                        }
+
+                        const result = await response.json();
+                        setTodos(result.data || []);
+                        saveTodosToLocal(result.data || []);
+                        setLoading(false);
+                        return;
+                    } catch (err) {
+                        console.error(`시도 ${i + 1}/${retries} 실패:`, err);
+
+                        if (i === retries - 1) {
+                            const localTodos = loadTodosFromLocal();
+                            if (localTodos.length > 0) {
+                                setTodos(localTodos);
+                                setError('오프라인 모드: 로컬 데이터를 사용 중입니다.');
+                            } else {
+                                setError('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.');
+                            }
+                            setLoading(false);
+                        } else {
+                            await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+                        }
+                    }
+                }
+            };
+
+            // 할 일 추가 (인증된 API 호출)
+            const addTodo = async () => {
+                if (inputValue.trim() === '') return;
+
+                try {
+                    const response = await authFetch(`${API_BASE_URL}/todos`, {
+                        method: 'POST',
+                        body: JSON.stringify({ text: inputValue })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`서버 오류: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    setTodos([result.data, ...todos]);
+                    setInputValue('');
+                } catch (err) {
+                    console.error('할 일 추가 오류:', err);
+                    setError('할 일을 추가할 수 없습니다. 서버를 확인해주세요.');
+                }
+            };
+
+            // 할 일 삭제 (인증된 API 호출)
+            const deleteTodo = async (id) => {
+                try {
+                    const response = await authFetch(`${API_BASE_URL}/todos/${id}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`서버 오류: ${response.status}`);
+                    }
+
+                    setTodos(todos.filter(todo => todo.id !== id));
+                } catch (err) {
+                    console.error('삭제 오류:', err);
+                    setError('할 일을 삭제할 수 없습니다. 서버를 확인해주세요.');
+                }
+            };
+
+            // 완료 상태 토글 (인증된 API 호출)
+            const toggleTodo = async (id) => {
+                const todo = todos.find(t => t.id === id);
+
+                try {
+                    const response = await authFetch(`${API_BASE_URL}/todos/${id}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ completed: !todo.completed })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`서버 오류: ${response.status}`);
+                    }
+
+                    setTodos(todos.map(t =>
+                        t.id === id ? { ...t, completed: !t.completed } : t
+                    ));
+                } catch (err) {
+                    console.error('업데이트 오류:', err);
+                    setError('할 일을 업데이트할 수 없습니다. 서버를 확인해주세요.');
+                }
+            };
+
+            // Enter 키로 할 일 추가
+            const handleKeyPress = (e) => {
+                if (e.key === 'Enter') {
+                    addTodo();
+                }
+            };
+
+            // ========== 화면 렌더링 ==========
+            return (
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10">
+                    {/* 헤더: 제목 + 사용자 정보 + 로그아웃 버튼 */}
+                    <div className="flex items-center justify-between mb-8">
+                        <h1 className="text-indigo-500 text-3xl font-bold">
+                            ✨ 오늘 할 일
+                        </h1>
+                        <div className="flex items-center gap-3">
+                            {/* 현재 로그인한 사용자의 이메일 표시 */}
+                            <span className="text-sm text-gray-400 max-w-[120px] truncate">
+                                {user.email}
+                            </span>
+                            {/* 로그아웃 버튼 */}
+                            <button
+                                onClick={onLogout}
+                                className="px-3 py-1.5 bg-gray-200 text-gray-600 rounded-lg text-sm font-semibold hover:bg-gray-300 transition-colors duration-200"
+                            >
+                                로그아웃
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 에러 메시지 */}
+                    {error && (
+                        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4 rounded-xl">
+                            <p className="text-sm">{error}</p>
+                        </div>
+                    )}
+
+                    {/* 입력 영역 */}
+                    <div className="flex gap-2.5 mb-6">
+                        <input
+                            type="text"
+                            className="flex-1 px-5 py-4 border-2 border-gray-300 rounded-xl text-base outline-none transition-all duration-300 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                            placeholder="할 일을 입력하세요..."
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            onKeyPress={handleKeyPress}
+                        />
+                        <button
+                            className="px-8 py-4 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-xl font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0"
+                            onClick={addTodo}
+                        >
+                            추가
+                        </button>
+                    </div>
+
+                    {/* 할 일 목록 */}
+                    <ul className="list-none">
+                        {loading ? (
+                            <div className="text-center text-gray-400 py-10 px-5 text-lg">
+                                <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mb-2"></div>
+                                <p>데이터를 불러오는 중...</p>
+                            </div>
+                        ) : todos.length === 0 ? (
+                            <div className="text-center text-gray-400 py-10 px-5 text-lg">
+                                할 일을 추가해보세요! 🎯
+                            </div>
+                        ) : (
+                            todos.map(todo => (
+                                <li
+                                    key={todo.id}
+                                    className={`flex items-center p-4 bg-gray-50 rounded-xl mb-2.5 transition-all duration-300 hover:bg-gray-100 hover:translate-x-1 ${todo.completed ? 'opacity-60' : ''}`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        className="w-5 h-5 mr-4 cursor-pointer accent-indigo-500"
+                                        checked={todo.completed}
+                                        onChange={() => toggleTodo(todo.id)}
+                                    />
+                                    <span className={`flex-1 text-base ${todo.completed ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                                        {todo.text}
+                                    </span>
+                                    <button
+                                        className="bg-red-500 text-white rounded-md px-4 py-2 cursor-pointer text-sm transition-colors duration-300 hover:bg-red-600"
+                                        onClick={() => deleteTodo(todo.id)}
+                                    >
+                                        삭제
+                                    </button>
+                                </li>
+                            ))
+                        )}
+                    </ul>
+                </div>
+            );
+        }
+
+        // ========== App 컴포넌트 (최상위) ==========
+        // 인증 상태에 따라 화면을 전환하는 컨트롤러 역할
+        //
+        // 화면 전환 흐름:
+        // 1. 앱 시작 → 저장된 토큰 확인 → 유효하면 투두 화면, 아니면 로그인 화면
+        // 2. 로그인 화면 ↔ 회원가입 화면 (서로 이동 가능)
+        // 3. 로그인/회원가입 성공 → 투두 화면
+        // 4. 로그아웃 → 로그인 화면
+        function App() {
+            // 현재 로그인한 사용자 정보 (null이면 로그인하지 않은 상태)
+            const [user, setUser] = useState(null);
+
+            // 현재 보여줄 화면: 'login', 'register', 'todos'
+            const [currentPage, setCurrentPage] = useState('login');
+
+            // 앱 초기 로딩 상태 (저장된 토큰 확인 중)
+            const [appLoading, setAppLoading] = useState(true);
+
+            // 앱 시작 시 저장된 토큰으로 자동 로그인 시도
+            // 이전에 로그인한 적이 있으면 다시 로그인하지 않아도 됩니다
+            useEffect(() => {
+                const checkAuth = async () => {
+                    const token = getToken();
+
+                    // 저장된 토큰이 없으면 → 로그인 화면 표시
+                    if (!token) {
+                        setAppLoading(false);
+                        return;
+                    }
+
+                    try {
+                        // 저장된 토큰이 유효한지 서버에 확인
+                        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+
+                        if (response.ok) {
+                            const result = await response.json();
+                            setUser(result.data.user);
+                            setCurrentPage('todos');
+                        } else {
+                            // 토큰이 만료되었거나 유효하지 않음 → 삭제
+                            removeToken();
+                        }
+                    } catch (err) {
+                        console.error('자동 로그인 실패:', err);
+                        removeToken();
+                    }
+
+                    setAppLoading(false);
+                };
+
+                checkAuth();
+            }, []);
+
+            // 로그인 성공 핸들러
+            // 토큰을 저장하고 투두 화면으로 전환합니다
+            const handleLoginSuccess = (userData, token) => {
+                setToken(token);
+                setUser(userData);
+                setCurrentPage('todos');
+            };
+
+            // 로그아웃 핸들러
+            // 토큰을 삭제하고 로그인 화면으로 전환합니다
+            const handleLogout = () => {
+                removeToken();
+                setUser(null);
+                setCurrentPage('login');
+            };
+
+            // 초기 로딩 화면 (토큰 확인 중)
+            if (appLoading) {
+                return (
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10 text-center">
+                        <div className="animate-spin inline-block w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mb-4"></div>
+                        <p className="text-gray-500">로딩 중...</p>
+                    </div>
+                );
+            }
+
+            // 화면 전환 로직
+            // currentPage 값에 따라 다른 컴포넌트를 보여줍니다
+            if (currentPage === 'register') {
+                return (
+                    <RegisterForm
+                        onRegisterSuccess={handleLoginSuccess}
+                        onGoToLogin={() => setCurrentPage('login')}
+                    />
+                );
+            }
+
+            if (currentPage === 'todos' && user) {
+                return (
+                    <TodoApp
+                        user={user}
+                        onLogout={handleLogout}
+                    />
+                );
+            }
+
+            // 기본: 로그인 화면
+            return (
+                <LoginForm
+                    onLoginSuccess={handleLoginSuccess}
+                    onGoToRegister={() => setCurrentPage('register')}
+                />
+            );
+        }
+
+        // ========== React 앱을 화면에 표시 ==========
+        // App 컴포넌트를 최상위로 렌더링합니다
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
