@@ -145,6 +145,7 @@
                                 placeholder="이메일을 입력하세요"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
+                                autoComplete="email"
                                 required
                             />
                         </div>
@@ -160,6 +161,7 @@
                                 placeholder="비밀번호를 입력하세요"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
+                                autoComplete="current-password"
                                 required
                             />
                         </div>
@@ -273,6 +275,7 @@
                                 placeholder="이메일을 입력하세요"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
+                                autoComplete="email"
                                 required
                             />
                         </div>
@@ -288,6 +291,7 @@
                                 placeholder="6자 이상 입력하세요"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
+                                autoComplete="new-password"
                                 required
                                 minLength={6}
                             />
@@ -304,6 +308,7 @@
                                 placeholder="비밀번호를 다시 입력하세요"
                                 value={confirmPassword}
                                 onChange={(e) => setConfirmPassword(e.target.value)}
+                                autoComplete="new-password"
                                 required
                             />
                         </div>
