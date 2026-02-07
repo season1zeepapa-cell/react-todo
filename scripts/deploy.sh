@@ -29,6 +29,9 @@ git pull origin main
 echo "📦 의존성 설치 중..."
 npm install --production
 
+# 3-1단계: PM2 로그 디렉토리 생성 (없으면 생성)
+mkdir -p logs
+
 # 4단계: PM2로 서버 재시작
 echo "🔄 서버를 재시작하는 중..."
 pm2 restart ecosystem.config.js --env production 2>/dev/null || pm2 start ecosystem.config.js --env production

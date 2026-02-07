@@ -56,7 +56,10 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false // Supabase는 SSL 연결이 필요하지만 자체 서명 인증서 허용
-  }
+  },
+  max: 10,              // 최대 동시 연결 수 (서버 부하 제한)
+  idleTimeoutMillis: 30000,  // 유휴 연결 30초 후 해제
+  connectionTimeoutMillis: 5000  // 연결 시도 5초 후 타임아웃
 });
 
 // 연결 성공 시 로그 출력
@@ -227,8 +230,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     res.status(500).json({
-      error: '서버 오류가 발생했습니다.',
-      details: err.message
+      error: '서버 오류가 발생했습니다.'
     });
   }
 });
@@ -250,8 +252,9 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // 이메일로 사용자 조회 (Parameterized Query)
+    // 보안: SELECT * 대신 필요한 컬럼만 지정 — 실수로 민감 정보가 노출되는 것을 방지
     const result = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, created_at FROM users WHERE email = $1',
       [email.toLowerCase().trim()]
     );
 
@@ -289,8 +292,7 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (err) {
     console.error('로그인 오류:', err);
     res.status(500).json({
-      error: '서버 오류가 발생했습니다.',
-      details: err.message
+      error: '서버 오류가 발생했습니다.'
     });
   }
 });
@@ -312,8 +314,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('사용자 정보 조회 오류:', err);
     res.status(500).json({
-      error: '서버 오류가 발생했습니다.',
-      details: err.message
+      error: '서버 오류가 발생했습니다.'
     });
   }
 });
@@ -325,8 +326,9 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 app.get('/api/todos', authenticateToken, async (req, res) => {
   try {
     // WHERE user_id = $1: 현재 로그인한 사용자의 투두만 조회
+    // 보안: SELECT * 대신 필요한 컬럼만 지정
     const result = await pool.query(
-      'SELECT * FROM todos WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT id, text, completed, user_id, created_at FROM todos WHERE user_id = $1 ORDER BY created_at DESC',
       [req.user.userId]
     );
 
@@ -342,8 +344,7 @@ app.get('/api/todos', authenticateToken, async (req, res) => {
     }
 
     res.status(500).json({
-      error: '서버 오류가 발생했습니다.',
-      details: err.message
+      error: '서버 오류가 발생했습니다.'
     });
   }
 });
@@ -357,6 +358,11 @@ app.post('/api/todos', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: '할 일 내용을 입력해주세요.' });
     }
 
+    // 할 일 내용 길이 제한 (500자)
+    if (text.trim().length > 500) {
+      return res.status(400).json({ error: '할 일 내용은 500자 이내로 입력해주세요.' });
+    }
+
     // user_id를 포함하여 INSERT → 이 할 일이 누구의 것인지 기록
     const result = await pool.query(
       'INSERT INTO todos (text, completed, user_id, created_at) VALUES ($1, $2, $3, NOW()) RETURNING *',
@@ -368,8 +374,7 @@ app.post('/api/todos', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('할 일 추가 오류:', err);
     res.status(500).json({
-      error: '서버 오류가 발생했습니다.',
-      details: err.message
+      error: '서버 오류가 발생했습니다.'
     });
   }
 });
@@ -399,8 +404,7 @@ app.patch('/api/todos/:id', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('업데이트 오류:', err);
     res.status(500).json({
-      error: '서버 오류가 발생했습니다.',
-      details: err.message
+      error: '서버 오류가 발생했습니다.'
     });
   }
 });
@@ -411,8 +415,9 @@ app.delete('/api/todos/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
 
     // WHERE id = $1 AND user_id = $2: 본인의 투두만 삭제 가능
+    // RETURNING *: 삭제된 데이터를 응답으로 반환 (다른 API와 형식 통일)
     const result = await pool.query(
-      'DELETE FROM todos WHERE id = $1 AND user_id = $2',
+      'DELETE FROM todos WHERE id = $1 AND user_id = $2 RETURNING *',
       [id, req.user.userId]
     );
 
@@ -420,18 +425,25 @@ app.delete('/api/todos/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: '해당 할 일을 찾을 수 없습니다.' });
     }
 
-    res.json({ message: '할 일이 삭제되었습니다.' });
+    res.json({ data: result.rows[0] });
   } catch (err) {
     console.error('삭제 오류:', err);
     res.status(500).json({
-      error: '서버 오류가 발생했습니다.',
-      details: err.message
+      error: '서버 오류가 발생했습니다.'
     });
   }
 });
 
-// [GET] / - 서버 상태 확인 (헬스 체크)
-app.get('/', async (req, res) => {
+// ========== 9단계: 프론트엔드 정적 파일 서빙 ==========
+
+// express.static: 프로젝트 루트 폴더의 정적 파일(index.html, CSS, JS 등)을 서빙
+// __dirname은 현재 파일(server.js)이 있는 프로젝트 루트를 가리킵니다
+// 중요: static 미들웨어가 헬스 체크보다 먼저 와야 '/'에서 index.html이 보입니다
+app.use(express.static(__dirname));
+
+// [GET] /api/health - 서버 상태 확인 (헬스 체크)
+// '/' 대신 '/api/health'를 사용하여 프론트엔드 서빙과 충돌하지 않도록 합니다
+app.get('/api/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
 
@@ -455,12 +467,6 @@ app.get('/', async (req, res) => {
     });
   }
 });
-
-// ========== 9단계: 프론트엔드 정적 파일 서빙 ==========
-
-// express.static: 프로젝트 루트 폴더의 정적 파일(index.html, CSS, JS 등)을 서빙
-// __dirname은 현재 파일(server.js)이 있는 프로젝트 루트를 가리킵니다
-app.use(express.static(__dirname));
 
 // SPA 폴백: API가 아닌 모든 요청은 index.html로 보냅니다
 // 예: /login, /register 같은 경로로 접속해도 index.html이 응답합니다

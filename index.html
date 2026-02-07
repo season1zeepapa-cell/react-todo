@@ -464,8 +464,8 @@
                 }
             };
 
-            // Enter 키로 할 일 추가
-            const handleKeyPress = (e) => {
+            // Enter 키로 할 일 추가 (onKeyDown 사용 — onKeyPress는 deprecated)
+            const handleKeyDown = (e) => {
                 if (e.key === 'Enter') {
                     addTodo();
                 }
@@ -509,7 +509,8 @@
                             placeholder="할 일을 입력하세요..."
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
-                            onKeyPress={handleKeyPress}
+                            onKeyDown={handleKeyDown}
+                            maxLength={500}
                         />
                         <button
                             className="px-8 py-4 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-xl font-semibold cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0"
